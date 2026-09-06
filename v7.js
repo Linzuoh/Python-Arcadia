@@ -244,6 +244,6 @@ window.addEventListener('resize',()=>placePet());
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedulePetWander(2500)});
 
 // O núcleo Python é o mesmo da V6; o observador só deixa visível qual versão da interface está ativa.
-const v7StatusObserver=new MutationObserver(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7'});
+const v7StatusObserver=new MutationObserver(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7.1'});
 const statusEl=document.getElementById('pyStatus');if(statusEl)v7StatusObserver.observe(statusEl,{childList:true,characterData:true,subtree:true});
-setTimeout(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7';ensureV7State();applyCosmetics();renderPetAssistStatus()},100);
+setTimeout(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7.1';ensureV7State();applyCosmetics();renderPetAssistStatus()},100);

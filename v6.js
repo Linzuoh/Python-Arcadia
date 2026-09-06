@@ -311,11 +311,40 @@ function shopUnlockedCount(){return SHOP.filter(i=>i.level<=playerLevel()).lengt
 
 render=function(){const [r,a]=parseRoute();setNav(['lesson','exam'].includes(r)?'home':r);if(r==='home')home();else if(r==='lesson')lessonView(Number(a));else if(r==='daily')dailyView();else if(r==='practice')practiceView(a);else if(r==='review')reviewView();else if(r==='wiki')coreWikiView();else if(r==='shop')shopView();else if(r==='notebook')notebookView();else if(r==='exams')examsView();else if(r==='exam')examView(Number(a));else if(r==='progress')progressView();else home();window.scrollTo(0,0);updateChrome()}
 
+function loadExternalScript(id,src,ready,timeoutMs=15000){
+  if(ready())return Promise.resolve(true);
+  const existing=document.getElementById(id);if(existing?.dataset?.loaded==='1'&&ready())return Promise.resolve(true);
+  return new Promise((resolve,reject)=>{
+    let script=existing;
+    let settled=false;
+    const finish=(ok,err)=>{if(settled)return;settled=true;clearTimeout(timer);ok?resolve(true):reject(err||new Error('Falha ao carregar '+src))};
+    const timer=setTimeout(()=>finish(false,new Error('Tempo limite ao carregar '+src)),timeoutMs);
+    if(!script){script=document.createElement('script');script.id=id;script.src=src;script.async=true;document.head.appendChild(script)}
+    script.addEventListener('load',()=>{script.dataset.loaded='1';finish(ready(),ready()?null:new Error('Arquivo carregou, mas a biblioteca não iniciou.'))},{once:true});
+    script.addEventListener('error',()=>finish(false,new Error('Não foi possível baixar '+src)),{once:true});
+  })
+}
+async function prepareArcadiaTools(){
+  // Ace é opcional graças ao textarea de fallback. Carrega em segundo plano.
+  loadExternalScript('arcadia-ace','https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.js',()=>!!window.ace,12000).catch(e=>console.warn('Arcádia: Ace indisponível; usando editor simples.',e));
+  const el=document.getElementById('pyStatus');if(el){el.textContent='● Python preparando em segundo plano…';el.classList.remove('ready')}
+  try{
+    await loadExternalScript('arcadia-pyodide','https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js',()=>typeof window.loadPyodide==='function',18000);
+    pyodide=await window.loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'});
+    const warm=await pyodide.runPythonAsync('40 + 2');if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');
+    if(el){el.textContent='● Python pronto · v7.1';el.classList.add('ready');el.onclick=null;el.title='Python executando no navegador.'}
+  }catch(e){
+    console.error('Arcádia: falha ao iniciar Python',e);
+    if(el){el.textContent='● Python indisponível · clique para tentar de novo';el.classList.remove('ready');el.title=String(e?.message||e);el.onclick=()=>prepareArcadiaTools()}
+    toast('O curso abriu, mas o Python não carregou. Você pode tentar novamente pelo indicador da lateral.')
+  }
+}
 boot=async function(){
+  // Primeiro mostra o produto; rede externa nunca mais segura a tela de carregamento.
   ensureV6State();applyCosmetics();document.getElementById('boot').classList.add('hidden');document.getElementById('app').classList.remove('hidden');updateChrome();render();
   // Override import so old backups also receive V6 fields safely.
   document.getElementById('importInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{state={...initial(),...JSON.parse(await f.text())};ensureV6State();save();render();toast('Progresso importado')}catch{toast('Arquivo de progresso inválido')}};
-  try{if(typeof loadPyodide!=='function')throw new Error('Biblioteca Pyodide não carregou');pyodide=await loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'});const warm=await pyodide.runPythonAsync('40 + 2');if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');const el=document.getElementById('pyStatus');if(el){el.textContent='● Python pronto · v6';el.classList.add('ready')}}catch(e){console.error('Arcádia: falha ao iniciar Python',e);const el=document.getElementById('pyStatus');if(el){el.textContent='● Python indisponível';el.classList.remove('ready')}toast('Não consegui iniciar o Python. Recarregue a página.')}
+  prepareArcadiaTools();
 }
 
 window.addEventListener('hashchange',render);

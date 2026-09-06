@@ -27,7 +27,23 @@ function parseRoute(){const h=location.hash.replace(/^#/,'')||'home';const [r,a]
 function render(){const [r,a]=parseRoute();setNav(['lesson','exam'].includes(r)?'home':r);if(r==='home')home();else if(r==='lesson')lessonView(Number(a));else if(r==='review')reviewView();else if(r==='wiki')wikiView();else if(r==='exams')examsView();else if(r==='exam')examView(Number(a));else if(r==='progress')progressView();else home();window.scrollTo(0,0);updateChrome()}
 function home(){const cur=currentLevel();let arcs='';for(let a=1;a<=10;a++){const items=DATA.levels.slice((a-1)*10,a*10);const done=items.filter(x=>state.completed.includes(x.level)).length;const cards=items.map(x=>{const unlocked=isUnlocked(x.level),complete=state.completed.includes(x.level),current=x.level===cur;return `<button class="level-card ${complete?'done':''} ${current?'current':''}" ${unlocked?'': 'disabled'} onclick="go('lesson',${x.level})"><span class="n">${complete?'✓ ':''}N${String(x.level).padStart(3,'0')}</span>${!unlocked?'<span class="lock">⌁</span>':''}<strong>${unlocked?escapeHtml(x.title):'Conteúdo bloqueado'}</strong><small>${unlocked?escapeHtml(x.kind==='arena'?'Arena':x.kind==='project'?'Projeto':x.concept):'Conclua a etapa anterior'}</small></button>`}).join('');const canExam=done===10,score=state.examScores[a];arcs+=`<section class="arc"><div class="arc-head"><div><h2>Arco ${a} — ${escapeHtml(items[0].arc_name)}</h2><p>${escapeHtml(items[0].arc_goal)}</p></div><span>${done}/10</span></div><div class="level-grid">${cards}</div><div class="exam-strip"><span>Prova do Arco ${a} ${score?`· melhor nota <b>${score}/100</b>`:''}</span><button class="ghost" ${canExam?'':'disabled'} onclick="go('exam',${a})">${score>=70?'Refazer prova':canExam?'Fazer prova':'Bloqueada'}</button></div></section>`}
 const l=level(cur);document.getElementById('view').innerHTML=`<section class="hero"><span class="eyebrow">Jornada de fluência</span><h1>Aprenda Python<br>sem morar no terminal.</h1><p>Você vê apenas a próxima parte da jornada. Leia, experimente código no navegador, resolva o desafio, receba correção automática e use o ChatGPT como tutor quando precisar.</p></section><div class="stats"><div class="stat"><b>${state.completed.length}/100</b><span>níveis concluídos</span></div><div class="stat"><b>${calcXp()}</b><span>XP</span></div><div class="stat"><b>${streak()}</b><span>dias de sequência</span></div><div class="stat"><b>${reviewDue().length}</b><span>revisões hoje</span></div></div>${l?`<div class="continue-card"><div><span class="eyebrow">Continue daqui</span><h3>N${String(cur).padStart(3,'0')} · ${escapeHtml(l.title)}</h3><p>${escapeHtml(l.goal)}</p></div><button class="primary" onclick="go('lesson',${cur})">Continuar →</button></div>`:''}${arcs}`}
-function initAce(id,value,readonly=false){const e=ace.edit(id);e.setTheme('ace/theme/tomorrow_night_eighties');e.session.setMode('ace/mode/python');e.setOptions({fontSize:'14px',showPrintMargin:false,wrap:true,useWorker:false,readOnly:readonly});e.setValue(value||'',-1);return e}
+function initAce(id,value,readonly=false){
+  const host=document.getElementById(id);
+  if(window.ace&&typeof window.ace.edit==='function'){
+    const e=window.ace.edit(id);e.setTheme('ace/theme/tomorrow_night_eighties');e.session.setMode('ace/mode/python');e.setOptions({fontSize:'14px',showPrintMargin:false,wrap:true,useWorker:false,readOnly:readonly});e.setValue(value||'',-1);return e
+  }
+  // Fallback local: o curso continua utilizável mesmo se o CDN do editor estiver lento/bloqueado.
+  host.innerHTML='';
+  const ta=document.createElement('textarea');ta.className='fallback-editor';ta.value=value||'';ta.readOnly=readonly;ta.spellcheck=false;ta.setAttribute('aria-label','Editor Python');host.appendChild(ta);
+  const pos=()=>{const before=ta.value.slice(0,ta.selectionStart);const rows=before.split('\n');return {row:rows.length-1,column:rows[rows.length-1].length}};
+  const tokenAt=(row,column)=>{const line=(ta.value.split('\n')[row]||'');let a=Math.min(column,line.length),b=a;while(a>0&&/[A-Za-z0-9_@.]/.test(line[a-1]))a--;while(b<line.length&&/[A-Za-z0-9_@.]/.test(line[b]))b++;return {value:line.slice(a,b)}};
+  return {
+    getValue:()=>ta.value,setValue:v=>{ta.value=String(v??'')},focus:()=>ta.focus(),
+    gotoLine:(line)=>{const lines=ta.value.split('\n');let at=0;for(let i=0;i<Math.max(0,line-1)&&i<lines.length;i++)at+=lines[i].length+1;ta.focus();ta.setSelectionRange(at,at)},
+    on:(type,cb)=>{if(type==='click')ta.addEventListener('click',ev=>cb({domEvent:ev,getDocumentPosition:pos}))},
+    session:{setMode(){},on:(type,cb)=>{if(type==='change')ta.addEventListener('input',cb)},getTokenAt:tokenAt}
+  }
+}
 async function runPython(code,testBody=null){
   if(!pyodide){
     return {ok:false,stdout:'',error:'Python ainda não terminou de carregar. Aguarde alguns segundos e tente novamente.'};
