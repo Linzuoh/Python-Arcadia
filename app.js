@@ -27,78 +27,147 @@ function render(){const [r,a]=parseRoute();setNav(['lesson','exam'].includes(r)?
 function home(){const cur=currentLevel();let arcs='';for(let a=1;a<=10;a++){const items=DATA.levels.slice((a-1)*10,a*10);const done=items.filter(x=>state.completed.includes(x.level)).length;const cards=items.map(x=>{const unlocked=isUnlocked(x.level),complete=state.completed.includes(x.level),current=x.level===cur;return `<button class="level-card ${complete?'done':''} ${current?'current':''}" ${unlocked?'': 'disabled'} onclick="go('lesson',${x.level})"><span class="n">${complete?'✓ ':''}N${String(x.level).padStart(3,'0')}</span>${!unlocked?'<span class="lock">⌁</span>':''}<strong>${unlocked?escapeHtml(x.title):'Conteúdo bloqueado'}</strong><small>${unlocked?escapeHtml(x.kind==='arena'?'Arena':x.kind==='project'?'Projeto':x.concept):'Conclua a etapa anterior'}</small></button>`}).join('');const canExam=done===10,score=state.examScores[a];arcs+=`<section class="arc"><div class="arc-head"><div><h2>Arco ${a} — ${escapeHtml(items[0].arc_name)}</h2><p>${escapeHtml(items[0].arc_goal)}</p></div><span>${done}/10</span></div><div class="level-grid">${cards}</div><div class="exam-strip"><span>Prova do Arco ${a} ${score?`· melhor nota <b>${score}/100</b>`:''}</span><button class="ghost" ${canExam?'':'disabled'} onclick="go('exam',${a})">${score>=70?'Refazer prova':canExam?'Fazer prova':'Bloqueada'}</button></div></section>`}
 const l=level(cur);document.getElementById('view').innerHTML=`<section class="hero"><span class="eyebrow">Jornada de fluência</span><h1>Aprenda Python<br>sem morar no terminal.</h1><p>Você vê apenas a próxima parte da jornada. Leia, experimente código no navegador, resolva o desafio, receba correção automática e use o ChatGPT como tutor quando precisar.</p></section><div class="stats"><div class="stat"><b>${state.completed.length}/100</b><span>níveis concluídos</span></div><div class="stat"><b>${calcXp()}</b><span>XP</span></div><div class="stat"><b>${streak()}</b><span>dias de sequência</span></div><div class="stat"><b>${reviewDue().length}</b><span>revisões hoje</span></div></div>${l?`<div class="continue-card"><div><span class="eyebrow">Continue daqui</span><h3>N${String(cur).padStart(3,'0')} · ${escapeHtml(l.title)}</h3><p>${escapeHtml(l.goal)}</p></div><button class="primary" onclick="go('lesson',${cur})">Continuar →</button></div>`:''}${arcs}`}
 function initAce(id,value,readonly=false){const e=ace.edit(id);e.setTheme('ace/theme/tomorrow_night_eighties');e.session.setMode('ace/mode/python');e.setOptions({fontSize:'14px',showPrintMargin:false,wrap:true,useWorker:false,readOnly:readonly});e.setValue(value||'',-1);return e}
-async function runPython(code,testBody=null){if(!pyodide)throw new Error('Python ainda está carregando. Tente de novo em alguns segundos.');await pyodide.loadPackagesFromImports(code);const payload=JSON.stringify(code);const body=JSON.stringify(testBody||'');const py=`
-import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, sqlite3, tempfile
+async function runPython(code,testBody=null){
+  if(!pyodide){
+    return {ok:false,stdout:'',error:'Python ainda não terminou de carregar. Aguarde alguns segundos e tente novamente.'};
+  }
+  try{
+    // O curso usa apenas a biblioteca padrão nos exercícios-base. Não tentamos analisar
+    // imports do código do aluno antes de executá-lo: código incompleto/sintaticamente
+    // incorreto é justamente algo que o botão Rodar precisa conseguir mostrar como erro.
+    pyodide.globals.set('ARC_USER_CODE', String(code ?? ''));
+    pyodide.globals.set('ARC_TEST_BODY', String(testBody ?? ''));
+    const raw = await pyodide.runPythonAsync(`
+import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile
 from datetime import date, datetime, timedelta
 from collections import *
-USER_CODE=${payload}
-TEST_BODY=${body}
-out=io.StringIO(); result={"ok":True,"stdout":"","error":""}
+
+out = io.StringIO()
+result = {"ok": True, "stdout": "", "error": ""}
+
 class _Raises:
-    def __init__(self, exc): self.exc=exc
+    def __init__(self, exc): self.exc = exc
     def __enter__(self): return self
-    def __exit__(self,typ,val,tb):
-        if typ is None: raise AssertionError("Era esperada uma exceção")
-        if not issubclass(typ,self.exc): return False
+    def __exit__(self, typ, val, tb):
+        if typ is None:
+            raise AssertionError("Era esperada uma exceção")
+        if not issubclass(typ, self.exc):
+            return False
         return True
+
 class _Pytest:
-    def fail(self,msg="Teste falhou"): raise AssertionError(msg)
-    def skip(self,msg="Pendente"): raise AssertionError(msg)
-    def raises(self,exc): return _Raises(exc)
-pytest=_Pytest()
+    def fail(self, msg="Teste falhou"): raise AssertionError(msg)
+    def skip(self, msg="Pendente"): raise AssertionError(msg)
+    def raises(self, exc): return _Raises(exc)
+
+pytest = _Pytest()
+
 def pending(value):
-    if value is None: pytest.fail("Sua função ainda retorna None")
+    if value is None:
+        pytest.fail("Sua função ainda retorna None")
     return value
+
 try:
-    ns={}
-    with contextlib.redirect_stdout(out): exec(USER_CODE,ns)
-    if TEST_BODY:
-        m=types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith('__')})
-        tmp_path=pathlib.Path('/tmp/arcadia_case'); tmp_path.mkdir(parents=True,exist_ok=True)
-        env=globals().copy(); env.update(ns); env.update({'m':m,'tmp_path':tmp_path,'pytest':pytest,'pending':pending})
-        exec(TEST_BODY,env)
-except Exception:
-    result['ok']=False; result['error']=traceback.format_exc(limit=5)
-result['stdout']=out.getvalue()
-json.dumps(result,ensure_ascii=False)
-`;return JSON.parse(await pyodide.runPythonAsync(py))}
+    ns = {}
+    with contextlib.redirect_stdout(out):
+        exec(ARC_USER_CODE, ns)
+    if ARC_TEST_BODY:
+        m = types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith('__')})
+        tmp_path = pathlib.Path('/tmp/arcadia_case')
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        env = globals().copy()
+        env.update(ns)
+        env.update({'m':m, 'tmp_path':tmp_path, 'pytest':pytest, 'pending':pending})
+        exec(ARC_TEST_BODY, env)
+except BaseException:
+    result['ok'] = False
+    result['error'] = traceback.format_exc(limit=6)
+
+result['stdout'] = out.getvalue()
+json.dumps(result, ensure_ascii=False)
+`);
+    const text = typeof raw === 'string' ? raw : String(raw);
+    const parsed = JSON.parse(text);
+    if(!parsed || typeof parsed.ok !== 'boolean'){
+      throw new Error('O executor retornou uma resposta inválida.');
+    }
+    return parsed;
+  }catch(err){
+    console.error('Arcádia: falha interna no executor Python', err);
+    return {
+      ok:false,
+      stdout:'',
+      error:'Falha interna do executor Python: ' + (err?.message || String(err)) + '\nRecarregue a página. Se continuar, envie este texto ao ChatGPT.'
+    };
+  }
+}
 function lessonView(n){const l=level(n);if(!l||!isUnlocked(n)){document.getElementById('view').innerHTML='<div class="empty">Esse conteúdo ainda está bloqueado.</div>';return}const done=state.completed.includes(n);let mission;if(l.kind==='project'){mission=`<div class="card project-md"><span class="eyebrow">Projeto do arco</span>${simpleMd(l.project||`# ${l.title}\n${l.goal}`)}</div><div class="card"><h3>Seu espaço de construção</h3><p>Use este editor para rascunhar ou construir a versão principal. Projetos maiores podem depois ir para um repositório próprio; aqui o foco é você pensar antes de pedir ajuda.</p><div class="editor-card"><div id="challenge-editor" class="editor"></div><div class="editor-actions"><button class="secondary" id="runBtn">▶ Rodar</button><button class="ghost" id="chatBtn">Pedir code review ao ChatGPT</button></div><pre id="output" class="output">A saída aparece aqui.</pre></div><div class="project-checks"><label><input type="checkbox" class="pc"> Eu transformei o objetivo em requisitos verificáveis.</label><label><input type="checkbox" class="pc"> Tenho uma versão mínima que funciona de ponta a ponta.</label><label><input type="checkbox" class="pc"> Testei pelo menos três cenários, incluindo um caso de borda.</label><label><input type="checkbox" class="pc"> Consigo explicar por que organizei o código desse jeito.</label></div><button class="primary" id="completeProject">Concluir projeto</button></div>`}else{mission=`<div class="card"><span class="eyebrow">Desafio</span><h2>Agora é você</h2><p>${escapeHtml(l.contract||l.goal)}</p>${l.symbols?.map(s=>s.doc?`<div class="callout"><b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.doc)}</div>`:'').join('')}</div><div class="card editor-card"><div class="editor-top"><span>seu código · salvo automaticamente neste navegador</span><span>N${String(n).padStart(3,'0')}</span></div><div id="challenge-editor" class="editor"></div><div class="editor-actions"><button class="secondary" id="runBtn">▶ Rodar</button><button class="primary" id="checkBtn">✓ Corrigir</button><button class="ghost" id="hintBtn">Dica</button><button class="ghost" id="chatBtn">Perguntar ao ChatGPT</button></div><pre id="output" class="output">Seu código roda aqui, sem terminal.</pre><div id="hint" class="hint"></div><div id="feedback" class="feedback">A correção automática usa casos que não aparecem na aula.</div></div><div id="completeBox" class="complete-box ${state.passed[n]?'':'hidden'}"><b>Desafio aprovado.</b><label class="reflection"><input id="reflect" type="checkbox"> Eu consigo explicar em voz alta por que minha solução funciona e citar um caso em que ela poderia falhar.</label><button id="completeBtn" class="primary" ${done?'disabled':''}>${done?'Nível concluído ✓':'Concluir nível'}</button></div>`}
 document.getElementById('view').innerHTML=`<div class="lesson-shell"><button class="back" onclick="go('home')">← voltar para a jornada</button><header class="lesson-head"><span class="eyebrow">Arco ${l.arc} · ${escapeHtml(l.arc_name)}</span><h1>${escapeHtml(l.title)}</h1><div class="lesson-meta"><span class="pill">${l.kind==='arena'?'Arena':l.kind==='project'?'Projeto':'Aula'}</span><span class="pill">+${l.xp} XP</span><span class="pill">${done?'Concluído':'Em progresso'}</span></div></header><div class="lesson-layout"><div class="content-stack"><div class="card"><span class="eyebrow">01 · Entender</span><h2>O que precisa ficar natural</h2><p>${escapeHtml(l.goal)}</p><div class="concept">${escapeHtml(l.concept)}</div><h3>Modelo mental</h3><p>${escapeHtml(l.mental)}</p><div class="callout mistake"><b>Erro comum</b><br>${escapeHtml(l.mistake)}</div></div><div class="card editor-card"><div class="editor-top"><span>02 · Experimentar</span><span>Python no navegador</span></div><div id="sandbox-editor" class="editor" style="height:220px"></div><div class="editor-actions"><button class="secondary" id="sandboxRun">▶ Experimentar</button><button class="ghost" id="restoreExample">Restaurar exemplo</button></div><pre id="sandboxOutput" class="output">Mude valores, quebre o exemplo, rode de novo.</pre></div>${mission}</div><aside class="lesson-side"><div class="step-list"><div class="ok">01 · Entender</div><div class="ok">02 · Experimentar</div><div class="${state.passed[n]||l.kind==='project'?'ok':''}">03 · Resolver</div><div class="${done?'ok':''}">04 · Explicar e concluir</div></div><button class="ghost" id="copyContext">Copiar contexto para esta conversa</button><small style="color:var(--muted);line-height:1.5">O botão copia aula, seu código e último erro. Cole aqui no ChatGPT e eu consigo atuar como tutor sem você explicar tudo de novo.</small></aside></div></div>`;
-sandboxEditor=initAce('sandbox-editor',l.example||'# experimente aqui');currentEditor=initAce('challenge-editor',state.codes[n]??l.starter??'# escreva aqui');currentEditor.session.on('change',()=>{state.codes[n]=currentEditor.getValue();save()});document.getElementById('sandboxRun').onclick=async()=>{let r=await runPython(sandboxEditor.getValue());document.getElementById('sandboxOutput').textContent=r.ok?(r.stdout||'Executou sem saída.'):r.error};document.getElementById('restoreExample').onclick=()=>sandboxEditor.setValue(l.example||'',-1);document.getElementById('runBtn').onclick=async()=>{let r=await runPython(currentEditor.getValue());document.getElementById('output').textContent=r.ok?(r.stdout||'Executou sem erro. Agora use “Corrigir”.'):r.error;lastFeedback=r.error||r.stdout};if(l.kind!=='project'){document.getElementById('checkBtn').onclick=async()=>{const fb=document.getElementById('feedback');fb.className='feedback';fb.textContent='Corrigindo…';let r=await runPython(currentEditor.getValue(),l.test);lastFeedback=r.error||'Todos os testes passaram.';if(r.ok){state.passed[n]=true;markActivity();save();fb.classList.add('success');fb.textContent='✓ Passou nos testes. Agora explique sua solução antes de concluir.';document.getElementById('completeBox').classList.remove('hidden')}else{fb.classList.add('fail');let last=(r.error||'').trim().split('\n').slice(-2).join('\n');fb.textContent='Ainda não. '+last}};let hintStep=0;document.getElementById('hintBtn').onclick=()=>{hintStep=Math.min(3,hintStep+1);const hints=[`Descreva primeiro a entrada e a saída. O objetivo é: ${l.goal}`,`O conceito central deste nível é “${l.concept}”. Qual parte do contrato pede exatamente isso?`,`Volte ao microexemplo da etapa Experimentar. Não copie: compare a forma dele com a responsabilidade da sua função.`];const h=document.getElementById('hint');h.textContent=`Dica ${hintStep}/3 · ${hints[hintStep-1]}`;h.classList.add('show')};document.getElementById('completeBtn').onclick=()=>{if(!document.getElementById('reflect').checked){toast('Marque a explicação antes de concluir.');return}if(!state.completed.includes(n))state.completed.push(n);markActivity();unlockCards(n);save();toast(`Nível ${n} concluído`);setTimeout(()=>go('home'),450)}}else{document.getElementById('completeProject').onclick=()=>{if([...document.querySelectorAll('.pc')].some(x=>!x.checked)){toast('Feche os quatro critérios do projeto primeiro.');return}if(!state.completed.includes(n))state.completed.push(n);markActivity();unlockCards(n);save();toast('Projeto concluído');setTimeout(()=>go('home'),450)}}document.getElementById('chatBtn').onclick=()=>copyTutorContext(l,currentEditor.getValue());document.getElementById('copyContext').onclick=()=>copyTutorContext(l,currentEditor.getValue())}
+sandboxEditor=initAce('sandbox-editor',l.example||'# experimente aqui');currentEditor=initAce('challenge-editor',state.codes[n]??l.starter??'# escreva aqui');currentEditor.session.on('change',()=>{state.codes[n]=currentEditor.getValue();save()});document.getElementById('sandboxRun').onclick=async()=>{const out=document.getElementById('sandboxOutput');out.textContent='Executando…';let r=await runPython(sandboxEditor.getValue());out.textContent=r.ok?(r.stdout||'Executou sem saída.'):r.error};document.getElementById('restoreExample').onclick=()=>sandboxEditor.setValue(l.example||'',-1);document.getElementById('runBtn').onclick=async()=>{const out=document.getElementById('output');out.textContent='Executando…';let r=await runPython(currentEditor.getValue());out.textContent=r.ok?(r.stdout||'Executou sem erro. Agora use “Corrigir”.'):r.error;lastFeedback=r.error||r.stdout};if(l.kind!=='project'){document.getElementById('checkBtn').onclick=async()=>{const fb=document.getElementById('feedback');fb.className='feedback';fb.textContent='Corrigindo…';let r=await runPython(currentEditor.getValue(),l.test);lastFeedback=r.error||'Todos os testes passaram.';if(r.ok){state.passed[n]=true;markActivity();save();fb.classList.add('success');fb.textContent='✓ Passou nos testes. Agora explique sua solução antes de concluir.';document.getElementById('completeBox').classList.remove('hidden')}else{fb.classList.add('fail');let last=(r.error||'').trim().split('\n').slice(-2).join('\n');fb.textContent='Ainda não. '+last}};let hintStep=0;document.getElementById('hintBtn').onclick=()=>{hintStep=Math.min(3,hintStep+1);const hints=[`Descreva primeiro a entrada e a saída. O objetivo é: ${l.goal}`,`O conceito central deste nível é “${l.concept}”. Qual parte do contrato pede exatamente isso?`,`Volte ao microexemplo da etapa Experimentar. Não copie: compare a forma dele com a responsabilidade da sua função.`];const h=document.getElementById('hint');h.textContent=`Dica ${hintStep}/3 · ${hints[hintStep-1]}`;h.classList.add('show')};document.getElementById('completeBtn').onclick=()=>{if(!document.getElementById('reflect').checked){toast('Marque a explicação antes de concluir.');return}if(!state.completed.includes(n))state.completed.push(n);markActivity();unlockCards(n);save();toast(`Nível ${n} concluído`);setTimeout(()=>go('home'),450)}}else{document.getElementById('completeProject').onclick=()=>{if([...document.querySelectorAll('.pc')].some(x=>!x.checked)){toast('Feche os quatro critérios do projeto primeiro.');return}if(!state.completed.includes(n))state.completed.push(n);markActivity();unlockCards(n);save();toast('Projeto concluído');setTimeout(()=>go('home'),450)}}document.getElementById('chatBtn').onclick=()=>copyTutorContext(l,currentEditor.getValue());document.getElementById('copyContext').onclick=()=>copyTutorContext(l,currentEditor.getValue())}
 function unlockCards(n){for(const c of DATA.cards.filter(x=>x.level===n)){if(!state.reviews[c.id]){let d=new Date();d.setDate(d.getDate()+1);state.reviews[c.id]={interval:1,due:d.toISOString().slice(0,10),ease:2.2}}}}
 async function copyTutorContext(l,code){const text=`Estou fazendo o Python Arcádia e estou no Nível ${l.level}: ${l.title}.\nObjetivo: ${l.goal}\nConceito: ${l.concept}\n\nMeu código atual:\n\n${code}\n\nÚltimo feedback/teste:\n${lastFeedback||'Ainda não rodei a correção.'}\n\nAtue como meu tutor. Não entregue a solução pronta. Primeiro identifique meu raciocínio, faça no máximo uma pergunta curta se realmente precisar e me dê uma dica progressiva. Se meu código estiver certo, peça que eu explique por que funciona e proponha um caso de borda.`;await navigator.clipboard.writeText(text);toast('Contexto copiado. Cole nesta conversa do ChatGPT.')}
 function reviewView(){const due=reviewDue();if(!due.length){document.getElementById('view').innerHTML=`<span class="eyebrow">Revisão espaçada</span><h1>Nada vencido agora.</h1><div class="empty">Quando você conclui níveis, conceitos voltam em intervalos diferentes conforme sua dificuldade.</div>`;return}let idx=0,revealed=false;const renderCard=()=>{const c=due[idx];document.getElementById('view').innerHTML=`<div class="review-wrap"><span class="eyebrow">Revisão ${idx+1}/${due.length} · N${String(c.level).padStart(3,'0')}</span><div class="review-card"><h2>${escapeHtml(c.q)}</h2>${revealed?`<div class="review-answer">${escapeHtml(c.a)}</div>`:''}</div>${revealed?`<div class="review-actions"><button onclick="gradeReview('${c.id}',0)">0 · apaguei</button><button onclick="gradeReview('${c.id}',1)">1 · difícil</button><button onclick="gradeReview('${c.id}',2)">2 · bom</button><button onclick="gradeReview('${c.id}',3)">3 · fácil</button></div>`:`<button class="primary" style="margin-top:14px" id="reveal">Revelar resposta</button>`}</div>`;if(!revealed)document.getElementById('reveal').onclick=()=>{revealed=true;renderCard()}};window.gradeReview=(id,q)=>{const old=state.reviews[id]||{interval:1,ease:2.2};let interval=q===0?1:q===1?Math.max(2,Math.round(old.interval*1.4)):q===2?Math.max(4,Math.round(old.interval*2.1)):Math.max(7,Math.round(old.interval*3));let d=new Date();d.setDate(d.getDate()+interval);state.reviews[id]={interval,due:d.toISOString().slice(0,10),ease:old.ease};markActivity();save();idx++;revealed=false;if(idx>=due.length){toast('Revisões concluídas');go('home')}else renderCard()};renderCard()}
 function examsView(){let rows='';for(let a=1;a<=10;a++){const levels=DATA.levels.slice((a-1)*10,a*10),unlocked=levels.every(x=>state.completed.includes(x.level)),score=state.examScores[a]||0;rows+=`<div class="exam-row"><div><b>Prova ${a} · ${escapeHtml(levels[0].arc_name)}</b><p>5 tarefas práticas · aprovação em 70/100 · sem tutor durante a tentativa.</p></div><div style="display:flex;gap:12px;align-items:center"><span class="score">${score?score+'/100':'—'}</span><button class="${unlocked?'primary':'ghost'}" ${unlocked?'':'disabled'} onclick="go('exam',${a})">${score?'Refazer':'Começar'}</button></div></div>`}document.getElementById('view').innerHTML=`<span class="eyebrow">Avaliação</span><h1>Provas práticas</h1><p style="color:var(--muted);max-width:700px">A prova é o ponto em que as dicas desaparecem. Você recebe contratos e escreve Python. A correção acontece no navegador e o próximo arco só abre com 70 ou mais.</p><div class="exam-list">${rows}</div>`}
 function examView(a){const levels=DATA.levels.slice((a-1)*10,a*10);if(!levels.every(x=>state.completed.includes(x.level))){document.getElementById('view').innerHTML='<div class="empty">Conclua o arco antes da prova.</div>';return}const e=exam(a),code=state.examCodes[a]??e.starter;document.getElementById('view').innerHTML=`<div class="lesson-shell"><button class="back" onclick="go('exams')">← provas</button><header class="lesson-head"><span class="eyebrow">Avaliação · Arco ${a}</span><h1>${escapeHtml(e.title)}</h1></header><div class="exam-warning"><b>Modo prova:</b> o botão de tutor some de propósito. Consulte apenas a documentação que você normalmente consultaria trabalhando.</div><div class="card editor-card" style="margin-top:18px"><div class="editor-top"><span>5 tarefas · cada uma vale 20 pontos</span><span id="examScore">${state.examScores[a]?`melhor: ${state.examScores[a]}/100`:''}</span></div><div id="challenge-editor" class="editor" style="height:520px"></div><div class="editor-actions"><button class="secondary" id="runExam">▶ Rodar</button><button class="primary" id="gradeExam">✓ Entregar e corrigir</button></div><pre id="output" class="output">Boa prova.</pre><div id="feedback" class="feedback"></div></div></div>`;currentEditor=initAce('challenge-editor',code);currentEditor.session.on('change',()=>{state.examCodes[a]=currentEditor.getValue();save()});document.getElementById('runExam').onclick=async()=>{let r=await runPython(currentEditor.getValue());document.getElementById('output').textContent=r.ok?(r.stdout||'Executou sem erro.'):r.error};document.getElementById('gradeExam').onclick=async()=>{let r=await gradeExamDetailed(currentEditor.getValue(),e.tasks);let score=r.score;state.examScores[a]=Math.max(Number(state.examScores[a]||0),score);markActivity();save();const fb=document.getElementById('feedback');fb.className='feedback '+(score>=70?'success':'fail');fb.textContent=`Nota: ${score}/100 · ${score>=70?'Aprovado. O próximo arco foi liberado.':'Ainda não atingiu 70. Revise os pontos fracos e tente novamente.'}`;document.getElementById('examScore').textContent=`melhor: ${state.examScores[a]}/100`}}
-async function gradeExamDetailed(code,tasks){if(!pyodide)return{score:0};await pyodide.loadPackagesFromImports(code);const payload=JSON.stringify(code),taskJson=JSON.stringify(tasks||[]);const py=`
-import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, sqlite3, tempfile
+async function gradeExamDetailed(code,tasks){
+  if(!pyodide) return {score:0,details:[],error:'Python ainda está carregando.'};
+  try{
+    pyodide.globals.set('ARC_EXAM_CODE', String(code ?? ''));
+    pyodide.globals.set('ARC_EXAM_TASKS_JSON', JSON.stringify(tasks || []));
+    const raw = await pyodide.runPythonAsync(`
+import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile
 from datetime import date, datetime, timedelta
 from collections import *
-USER_CODE=${payload}; TASKS=json.loads(${JSON.stringify(taskJson)})
+
+TASKS = json.loads(ARC_EXAM_TASKS_JSON)
+
 class _Raises:
- def __init__(self,exc): self.exc=exc
- def __enter__(self): return self
- def __exit__(self,typ,val,tb):
-  if typ is None: raise AssertionError('Era esperada uma exceção')
-  if not issubclass(typ,self.exc): return False
-  return True
+    def __init__(self, exc): self.exc = exc
+    def __enter__(self): return self
+    def __exit__(self, typ, val, tb):
+        if typ is None: raise AssertionError('Era esperada uma exceção')
+        if not issubclass(typ, self.exc): return False
+        return True
+
 class _Pytest:
- def fail(self,msg='falhou'): raise AssertionError(msg)
- def skip(self,msg='pendente'): raise AssertionError(msg)
- def raises(self,exc): return _Raises(exc)
-pytest=_Pytest(); score=0; details=[]
+    def fail(self, msg='falhou'): raise AssertionError(msg)
+    def skip(self, msg='pendente'): raise AssertionError(msg)
+    def raises(self, exc): return _Raises(exc)
+
+pytest = _Pytest()
+score = 0
+details = []
+error = ''
+
 try:
- ns={}; exec(USER_CODE,ns); m=types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith('__')}); tmp_path=pathlib.Path('/tmp/arcadia_exam');tmp_path.mkdir(parents=True,exist_ok=True)
-except Exception as ex:
- json.dumps({'score':0,'details':[False]*5,'error':str(ex)})
+    ns = {}
+    exec(ARC_EXAM_CODE, ns)
+    m = types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith('__')})
+    tmp_path = pathlib.Path('/tmp/arcadia_exam')
+    tmp_path.mkdir(parents=True, exist_ok=True)
+except BaseException:
+    error = traceback.format_exc(limit=5)
 else:
- base=globals().copy();base.update(ns);base.update({'m':m,'tmp_path':tmp_path,'pytest':pytest})
- for task in TASKS[:5]:
-  try:
-   env=base.copy(); exec(task,env); score+=20; details.append(True)
-  except Exception: details.append(False)
- json.dumps({'score':score,'details':details})
-`;return JSON.parse(await pyodide.runPythonAsync(py))}
+    base = globals().copy()
+    base.update(ns)
+    base.update({'m':m, 'tmp_path':tmp_path, 'pytest':pytest})
+    for task in TASKS[:5]:
+        try:
+            env = base.copy()
+            exec(task, env)
+            score += 20
+            details.append(True)
+        except BaseException:
+            details.append(False)
+
+json.dumps({'score':score, 'details':details, 'error':error}, ensure_ascii=False)
+`);
+    return JSON.parse(typeof raw === 'string' ? raw : String(raw));
+  }catch(err){
+    console.error('Arcádia: falha ao corrigir prova', err);
+    return {score:0,details:[],error:'Falha interna na correção: '+(err?.message||String(err))};
+  }
+}
 function progressView(){const pct=state.completed.length;const badges=[['Primeiro passo',pct>=1,'Conclua o primeiro nível'],['Primeiro arco',pct>=10&&arcPassed(1),'Passe pela primeira prova'],['Coleções naturais',pct>=20&&arcPassed(2),'Conclua o arco 2'],['Metade da jornada',pct>=50,'Chegue ao nível 50'],['Engenheiro',pct>=90,'Chegue ao arco final'],['Naturalizado',pct>=100&&arcPassed(10),'Conclua todos os níveis e provas']];document.getElementById('view').innerHTML=`<span class="eyebrow">Seu histórico</span><h1>${rank()}</h1><p style="color:var(--muted)">${calcXp()} XP · ${streak()} dias de sequência · ${Object.values(state.examScores).filter(x=>x>=70).length}/10 provas aprovadas</p><div class="progress-big"><i style="width:${pct}%"></i></div><h2 class="section-title">Conquistas</h2><div class="badges">${badges.map(b=>`<div class="badge-card ${b[1]?'':'locked'}"><b>${b[1]?'✓ ':'⌁ '}${b[0]}</b><p style="color:var(--muted);font-size:12px">${b[2]}</p></div>`).join('')}</div><h2 class="section-title">Segurança do progresso</h2><div class="card"><p>O progresso fica salvo no navegador. Exporte um arquivo JSON de vez em quando para ter backup e poder continuar em outro computador.</p><button class="secondary" onclick="document.getElementById('exportBtn').click()">Exportar agora</button></div>`}
-async function boot(){document.getElementById('boot').classList.add('hidden');document.getElementById('app').classList.remove('hidden');updateChrome();render();try{pyodide=await loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'});const el=document.getElementById('pyStatus');if(el){el.textContent='● Python pronto';el.classList.add('ready')}}catch(e){const el=document.getElementById('pyStatus');if(el)el.textContent='● Python indisponível';toast('Não consegui carregar o Python. Verifique a internet e recarregue.')}}
+async function boot(){document.getElementById('boot').classList.add('hidden');document.getElementById('app').classList.remove('hidden');updateChrome();render();try{if(typeof loadPyodide!=='function')throw new Error('Biblioteca Pyodide não carregou');pyodide=await loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'});const warm=await pyodide.runPythonAsync('40 + 2');if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');const el=document.getElementById('pyStatus');if(el){el.textContent='● Python pronto · v3';el.classList.add('ready')}}catch(e){console.error('Arcádia: falha ao iniciar Python',e);const el=document.getElementById('pyStatus');if(el){el.textContent='● Python indisponível';el.classList.remove('ready')}toast('Não consegui iniciar o Python. Recarregue a página.')}}
 document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>go(b.dataset.route));document.getElementById('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='python-arcadia-progresso.json';a.click();URL.revokeObjectURL(a.href)};document.getElementById('importInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{state={...initial(),...JSON.parse(await f.text())};save();render();toast('Progresso importado')}catch{toast('Arquivo de progresso inválido')}};window.addEventListener('hashchange',render);boot();
