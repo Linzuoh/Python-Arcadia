@@ -35,3 +35,7 @@ O progresso continua no mesmo armazenamento da V4/V5; uma migração adiciona os
 ## V7 — pets vivos
 
 Pets agora atravessam a tela, têm animações próprias, falam em eventos do curso e podem ser clicados. Cada espécie possui um poder leve de estudo com 3 cargas diárias. Poderes não escrevem código, não revelam testes e ficam desligados em provas e no Modo Fluência.
+
+
+## V7.2
+A inicialização do Python agora é sob demanda. A página nunca depende do Pyodide para abrir ou navegar.

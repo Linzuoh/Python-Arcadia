@@ -148,7 +148,7 @@ function petResult(title,html){
   const pet=itemById(state.equippedPet);openPetPanel(`<div class="pet-result-title">${escapeHtml(title)}</div>${html}`);petWorldSay(title)
 }
 async function powerSyntax(code){
-  if(!pyodide)return petResult('Python ainda está carregando','<p>Tente novamente quando o indicador ficar verde.</p>');
+  if(!pyodide){const ready=await window.ensureArcadiaPythonReady?.();if(!ready||!pyodide)return petResult('Python não iniciou','<p>Clique no indicador da lateral e tente novamente.</p>');}
   try{
     pyodide.globals.set('ARC_PET_CODE',String(code||''));
     const raw=await pyodide.runPythonAsync(`
@@ -243,7 +243,6 @@ rewardOverlay=function(title,opts={}){if(state.equippedPet)addPetBond(/Nível|Pr
 window.addEventListener('resize',()=>placePet());
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedulePetWander(2500)});
 
-// O núcleo Python é o mesmo da V6; o observador só deixa visível qual versão da interface está ativa.
-const v7StatusObserver=new MutationObserver(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7.1'});
-const statusEl=document.getElementById('pyStatus');if(statusEl)v7StatusObserver.observe(statusEl,{childList:true,characterData:true,subtree:true});
-setTimeout(()=>{const el=document.getElementById('pyStatus');if(el&&el.textContent.includes('Python pronto'))el.textContent='● Python pronto · v7.1';ensureV7State();applyCosmetics();renderPetAssistStatus()},100);
+// V7.2: sem MutationObserver no status. A V7.1 observava o próprio texto e
+// reescrevia esse mesmo texto, criando um ciclo de mutações que podia congelar a página.
+setTimeout(()=>{ensureV7State();applyCosmetics();renderPetAssistStatus()},100);

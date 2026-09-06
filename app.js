@@ -46,7 +46,8 @@ function initAce(id,value,readonly=false){
 }
 async function runPython(code,testBody=null){
   if(!pyodide){
-    return {ok:false,stdout:'',error:'Python ainda não terminou de carregar. Aguarde alguns segundos e tente novamente.'};
+    const ready = typeof window.ensureArcadiaPythonReady==='function' ? await window.ensureArcadiaPythonReady() : false;
+    if(!ready || !pyodide) return {ok:false,stdout:'',error:'Não consegui iniciar o Python. Clique no indicador da lateral para tentar novamente.'};
   }
   try{
     // O curso usa apenas a biblioteca padrão nos exercícios-base. Não tentamos analisar
@@ -207,7 +208,10 @@ function reviewView(){const due=reviewDue();if(!due.length){document.getElementB
 function examsView(){let rows='';for(let a=1;a<=10;a++){const levels=DATA.levels.slice((a-1)*10,a*10),unlocked=levels.every(x=>state.completed.includes(x.level)),score=state.examScores[a]||0;rows+=`<div class="exam-row"><div><b>Prova ${a} · ${escapeHtml(levels[0].arc_name)}</b><p>5 tarefas práticas · aprovação em 70/100 · sem tutor durante a tentativa.</p></div><div style="display:flex;gap:12px;align-items:center"><span class="score">${score?score+'/100':'—'}</span><button class="${unlocked?'primary':'ghost'}" ${unlocked?'':'disabled'} onclick="go('exam',${a})">${score?'Refazer':'Começar'}</button></div></div>`}document.getElementById('view').innerHTML=`<span class="eyebrow">Avaliação</span><h1>Provas práticas</h1><p style="color:var(--muted);max-width:700px">A prova é o ponto em que as dicas desaparecem. Você recebe contratos e escreve Python. A correção acontece no navegador e o próximo arco só abre com 70 ou mais.</p><div class="exam-list">${rows}</div>`}
 function examView(a){const levels=DATA.levels.slice((a-1)*10,a*10);if(!levels.every(x=>state.completed.includes(x.level))){document.getElementById('view').innerHTML='<div class="empty">Conclua o arco antes da prova.</div>';return}const e=exam(a),code=state.examCodes[a]??e.starter;document.getElementById('view').innerHTML=`<div class="lesson-shell"><button class="back" onclick="go('exams')">← provas</button><header class="lesson-head"><span class="eyebrow">Avaliação · Arco ${a}</span><h1>${escapeHtml(e.title)}</h1></header><div class="exam-warning"><b>Modo prova:</b> o botão de tutor some de propósito. Consulte apenas a documentação que você normalmente consultaria trabalhando.</div><div class="card editor-card" style="margin-top:18px"><div class="editor-top"><span>5 tarefas · cada uma vale 20 pontos</span><span id="examScore">${state.examScores[a]?`melhor: ${state.examScores[a]}/100`:''}</span></div><div id="challenge-editor" class="editor" style="height:520px"></div><div class="editor-actions"><button class="secondary" id="runExam">▶ Rodar</button><button class="primary" id="gradeExam">✓ Entregar e corrigir</button></div><pre id="output" class="output">Boa prova.</pre><div id="feedback" class="feedback"></div></div></div>`;currentEditor=initAce('challenge-editor',code);currentEditor.session.on('change',()=>{state.examCodes[a]=currentEditor.getValue();save()});document.getElementById('runExam').onclick=async()=>{let r=await runPython(currentEditor.getValue());document.getElementById('output').textContent=r.ok?(r.stdout||'Executou sem erro.'):r.error};document.getElementById('gradeExam').onclick=async()=>{let r=await gradeExamDetailed(currentEditor.getValue(),e.tasks);let score=r.score;state.examScores[a]=Math.max(Number(state.examScores[a]||0),score);markActivity();save();const fb=document.getElementById('feedback');fb.className='feedback '+(score>=70?'success':'fail');fb.textContent=`Nota: ${score}/100 · ${score>=70?'Aprovado. O próximo arco foi liberado.':'Ainda não atingiu 70. Revise os pontos fracos e tente novamente.'}`;document.getElementById('examScore').textContent=`melhor: ${state.examScores[a]}/100`}}
 async function gradeExamDetailed(code,tasks){
-  if(!pyodide) return {score:0,details:[],error:'Python ainda está carregando.'};
+  if(!pyodide){
+    const ready = typeof window.ensureArcadiaPythonReady==='function' ? await window.ensureArcadiaPythonReady() : false;
+    if(!ready || !pyodide) return {score:0,details:[],error:'Não consegui iniciar o Python.'};
+  }
   try{
     pyodide.globals.set('ARC_EXAM_CODE', String(code ?? ''));
     pyodide.globals.set('ARC_EXAM_TASKS_JSON', JSON.stringify(tasks || []));

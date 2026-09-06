@@ -224,7 +224,7 @@ lessonView=function(n){
 }
 
 async function tracePython(code){
-  if(!pyodide)return {ok:false,steps:[],error:'Python ainda está carregando.'};
+  if(!pyodide){const ready=await window.ensureArcadiaPythonReady?.();if(!ready||!pyodide)return {ok:false,steps:[],error:'Não consegui iniciar o Python.'};}
   if(/\binput\s*\(/.test(code))return {ok:false,steps:[],error:'O visualizador não executa `input()` porque ficaria esperando uma resposta. Troque temporariamente a entrada por um valor fixo para observar o fluxo.'};
   try{
     pyodide.globals.set('ARC_TRACE_CODE',String(code||''));
@@ -324,27 +324,56 @@ function loadExternalScript(id,src,ready,timeoutMs=15000){
     script.addEventListener('error',()=>finish(false,new Error('Não foi possível baixar '+src)),{once:true});
   })
 }
-async function prepareArcadiaTools(){
-  // Ace é opcional graças ao textarea de fallback. Carrega em segundo plano.
-  loadExternalScript('arcadia-ace','https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.js',()=>!!window.ace,12000).catch(e=>console.warn('Arcádia: Ace indisponível; usando editor simples.',e));
-  const el=document.getElementById('pyStatus');if(el){el.textContent='● Python preparando em segundo plano…';el.classList.remove('ready')}
-  try{
-    await loadExternalScript('arcadia-pyodide','https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js',()=>typeof window.loadPyodide==='function',18000);
-    pyodide=await window.loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'});
-    const warm=await pyodide.runPythonAsync('40 + 2');if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');
-    if(el){el.textContent='● Python pronto · v7.1';el.classList.add('ready');el.onclick=null;el.title='Python executando no navegador.'}
-  }catch(e){
-    console.error('Arcádia: falha ao iniciar Python',e);
-    if(el){el.textContent='● Python indisponível · clique para tentar de novo';el.classList.remove('ready');el.title=String(e?.message||e);el.onclick=()=>prepareArcadiaTools()}
-    toast('O curso abriu, mas o Python não carregou. Você pode tentar novamente pelo indicador da lateral.')
-  }
+function promiseTimeout(promise,ms,label){
+  return Promise.race([
+    promise,
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error(label||'Tempo limite excedido')),ms))
+  ])
 }
+let arcadiaPythonInitPromise=null;
+function setPythonStatus(text,ready=false){
+  const el=document.getElementById('pyStatus');if(!el)return;
+  if(el.textContent!==text)el.textContent=text;
+  el.classList.toggle('ready',!!ready);
+}
+function prepareArcadiaEditor(){
+  loadExternalScript('arcadia-ace','https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.js',()=>!!window.ace,10000)
+    .catch(e=>console.warn('Arcádia: Ace indisponível; usando editor simples.',e));
+}
+async function prepareArcadiaTools(force=false){
+  if(pyodide){setPythonStatus('● Python pronto · v7.2',true);return true}
+  if(arcadiaPythonInitPromise&&!force)return arcadiaPythonInitPromise;
+  setPythonStatus('● Iniciando Python…',false);
+  const el=document.getElementById('pyStatus');if(el){el.onclick=null;el.title='O Python está sendo iniciado apenas porque uma ferramenta de código foi usada.'}
+  arcadiaPythonInitPromise=(async()=>{
+    try{
+      await loadExternalScript('arcadia-pyodide','https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js',()=>typeof window.loadPyodide==='function',15000);
+      const instance=await promiseTimeout(window.loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/'}),25000,'O download do Python demorou demais.');
+      const warm=await promiseTimeout(instance.runPythonAsync('40 + 2'),5000,'O teste interno do Python demorou demais.');
+      if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');
+      pyodide=instance;
+      setPythonStatus('● Python pronto · v7.2',true);
+      const st=document.getElementById('pyStatus');if(st){st.onclick=null;st.title='Python executando no navegador.'}
+      return true;
+    }catch(e){
+      console.error('Arcádia: falha ao iniciar Python',e);
+      arcadiaPythonInitPromise=null;
+      setPythonStatus('● Python offline · clique para tentar',false);
+      const st=document.getElementById('pyStatus');if(st){st.title=String(e?.message||e);st.onclick=()=>prepareArcadiaTools(true)}
+      toast('O site continua funcionando. O Python não iniciou; clique no indicador para tentar de novo.');
+      return false;
+    }
+  })();
+  return arcadiaPythonInitPromise;
+}
+window.ensureArcadiaPythonReady=()=>prepareArcadiaTools(false);
 boot=async function(){
-  // Primeiro mostra o produto; rede externa nunca mais segura a tela de carregamento.
+  // V7.2: nada pesado de Python roda durante a abertura da página.
   ensureV6State();applyCosmetics();document.getElementById('boot').classList.add('hidden');document.getElementById('app').classList.remove('hidden');updateChrome();render();
-  // Override import so old backups also receive V6 fields safely.
   document.getElementById('importInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{state={...initial(),...JSON.parse(await f.text())};ensureV6State();save();render();toast('Progresso importado')}catch{toast('Arquivo de progresso inválido')}};
-  prepareArcadiaTools();
+  prepareArcadiaEditor();
+  setPythonStatus('● Python sob demanda · inicia ao Rodar',false);
+  const st=document.getElementById('pyStatus');if(st){st.title='O Python só é carregado quando você usa Rodar, Corrigir, Debugger ou um poder que precise dele.';st.onclick=()=>prepareArcadiaTools(true)}
 }
 
 window.addEventListener('hashchange',render);

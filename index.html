@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0d1117" />
   <title>Python Arcádia</title>
-  <link rel="stylesheet" href="styles.css?v=71" />
+  <link rel="stylesheet" href="styles.css?v=72" />
 </head>
 <body>
   <div id="boot" class="boot"><div class="boot-mark">A</div><div><strong>Python Arcádia</strong><span>Preparando seu ambiente Python no navegador…</span></div></div>
@@ -34,12 +34,12 @@
     <main id="view" class="view"></main>
   </div>
   <div id="toast" class="toast"></div>
-  <script src="course-data.js?v=71"></script>
-  <script src="v6-data.js?v=71"></script>
-  <script src="app.js?v=71"></script>
-  <script src="v6.js?v=71"></script>
-  <script src="v7-data.js?v=71"></script>
-  <script src="v7.js?v=71"></script>
+  <script src="course-data.js?v=72"></script>
+  <script src="v6-data.js?v=72"></script>
+  <script src="app.js?v=72"></script>
+  <script src="v6.js?v=72"></script>
+  <script src="v7-data.js?v=72"></script>
+  <script src="v7.js?v=72"></script>
 
   <script>
     // V7.1 fail-safe: a dependency or local JS error must never leave the course on an infinite boot screen.
@@ -50,9 +50,9 @@
         boot.classList.add('hidden');
         app.classList.remove('hidden');
         var view=document.getElementById('view');
-        if(view) view.innerHTML='<div class="card"><span class="eyebrow">diagnóstico automático</span><h1>O curso não conseguiu iniciar.</h1><p>Um arquivo do site não carregou corretamente. Faça Ctrl + Shift + R. Se continuar, confira se os arquivos da atualização V7.1 estão na raiz do repositório.</p></div>';
+        if(view) view.innerHTML='<div class="card"><span class="eyebrow">diagnóstico automático</span><h1>O curso não conseguiu iniciar.</h1><p>Um arquivo do site não carregou corretamente. Faça Ctrl + Shift + R. Se continuar, confira se os arquivos da atualização V7.2 estão na raiz do repositório.</p></div>';
         var st=document.getElementById('pyStatus');
-        if(st) st.textContent='● inicialização incompleta · v7.1';
+        if(st) st.textContent='● inicialização incompleta · v7.2';
       }
     },1800);
   </script>
