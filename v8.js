@@ -238,7 +238,7 @@ async function gradeExamDetailedV8(code,tasks){
     pyodide.globals.set('ARC_EXAM_CODE_V8',String(code??''));
     pyodide.globals.set('ARC_EXAM_TASKS_V8',JSON.stringify(tasks||[]));
     const raw=await pyodide.runPythonAsync(`
-import json, traceback, types, pathlib, io, contextlib, math, statistics, re, csv, tempfile
+import json, traceback, types, pathlib, io, contextlib, math, statistics, re, csv, tempfile, sys, time
 from datetime import date, datetime, timedelta
 from collections import *
 
@@ -261,14 +261,28 @@ score=0
 details=[]
 errors=[]
 fatal=""
+class _ArcadiaExamTimeout(Exception):
+    pass
+exam_deadline=time.monotonic()+3.5
+def _exam_watchdog(frame,event,arg):
+    if event=='line' and frame.f_code.co_filename=='<arcadia_exam_user>' and time.monotonic()>exam_deadline:
+        raise _ArcadiaExamTimeout()
+    return _exam_watchdog
+
 try:
     ns={}
-    exec(ARC_EXAM_CODE_V8,ns)
+    sys.settrace(_exam_watchdog)
+    exec(compile(ARC_EXAM_CODE_V8,'<arcadia_exam_user>','exec'),ns)
+    sys.settrace(None)
     m=types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith("__")})
     tmp_path=pathlib.Path("/tmp/arcadia_exam_v8")
     tmp_path.mkdir(parents=True,exist_ok=True)
+except _ArcadiaExamTimeout:
+    fatal='Tempo limite: o código da prova entrou em uma execução muito longa. Verifique loops que não alteram sua própria condição.'
 except BaseException:
     fatal=traceback.format_exc(limit=5)
+finally:
+    sys.settrace(None)
 else:
     base=globals().copy()
     base.update(ns)

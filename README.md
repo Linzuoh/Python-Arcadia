@@ -43,3 +43,7 @@ A inicialização do Python agora é sob demanda. A página nunca depende do Pyo
 ## V8 — revisão ativa e auditoria geral
 
 A V8 adiciona revisão com resposta escrita, diagnóstico de prova somente depois da aprovação, desafios diários cumulativos mais difíceis e variados, novos treinos externos e uma auditoria pedagógica dos 100 níveis. Veja `CHANGELOG_V8.md` e `AUDIT_V8.md`.
+
+
+## V9 — didática guiada
+A V9 mantém o sistema de treino da V8 e adiciona uma camada pedagógica a todas as aulas conceituais: motivação, modelo mental, leitura passo a passo, variações e um mini-check escrito antes do desafio. A resposta de referência só aparece depois da tentativa (ou ao escolher “Não lembro”).

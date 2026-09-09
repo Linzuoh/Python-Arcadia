@@ -374,7 +374,7 @@ function prepareArcadiaEditor(){
     .catch(e=>console.warn('Arcádia: Ace indisponível; usando editor simples.',e));
 }
 async function prepareArcadiaTools(force=false){
-  if(pyodide){setPythonStatus('● Python pronto · v8',true);return true}
+  if(pyodide){setPythonStatus('● Python pronto · v8.1',true);return true}
   if(arcadiaPythonInitPromise&&!force)return arcadiaPythonInitPromise;
   setPythonStatus('● Iniciando Python…',false);
   const el=document.getElementById('pyStatus');if(el){el.onclick=null;el.title='O Python está sendo iniciado apenas porque uma ferramenta de código foi usada.'}
@@ -385,7 +385,7 @@ async function prepareArcadiaTools(force=false){
       const warm=await promiseTimeout(instance.runPythonAsync('40 + 2'),5000,'O teste interno do Python demorou demais.');
       if(Number(warm)!==42)throw new Error('Teste interno do Python falhou');
       pyodide=instance;
-      setPythonStatus('● Python pronto · v8',true);
+      setPythonStatus('● Python pronto · v8.1',true);
       const st=document.getElementById('pyStatus');if(st){st.onclick=null;st.title='Python executando no navegador.'}
       return true;
     }catch(e){

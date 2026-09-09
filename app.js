@@ -56,7 +56,7 @@ async function runPython(code,testBody=null){
     pyodide.globals.set('ARC_USER_CODE', String(code ?? ''));
     pyodide.globals.set('ARC_TEST_BODY', String(testBody ?? ''));
     const raw = await pyodide.runPythonAsync(`
-import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile
+import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile, sys, time
 from datetime import date, datetime, timedelta
 from collections import *
 
@@ -85,10 +85,22 @@ def pending(value):
         pytest.fail("Sua função ainda retorna None")
     return value
 
+class _ArcadiaTimeout(Exception):
+    pass
+
+deadline = time.monotonic() + 2.5
+def _arcadia_watchdog(frame, event, arg):
+    if event == 'line' and frame.f_code.co_filename == '<arcadia_user>':
+        if time.monotonic() > deadline:
+            raise _ArcadiaTimeout()
+    return _arcadia_watchdog
+
 try:
     ns = {}
     with contextlib.redirect_stdout(out):
-        exec(ARC_USER_CODE, ns)
+        sys.settrace(_arcadia_watchdog)
+        exec(compile(ARC_USER_CODE, '<arcadia_user>', 'exec'), ns)
+        sys.settrace(None)
     if ARC_TEST_BODY:
         m = types.SimpleNamespace(**{k:v for k,v in ns.items() if not k.startswith('__')})
         tmp_path = pathlib.Path('/tmp/arcadia_case')
@@ -97,9 +109,16 @@ try:
         env.update(ns)
         env.update({'m':m, 'tmp_path':tmp_path, 'pytest':pytest, 'pending':pending})
         exec(ARC_TEST_BODY, env)
+except _ArcadiaTimeout:
+    result['ok'] = False
+    result['error'] = ('Tempo limite: seu código ficou executando por mais de 2,5 segundos.\n'
+                       'Isso costuma acontecer quando um while nunca deixa de ser verdadeiro.\n'
+                       'Confira se alguma variável usada na condição realmente muda dentro do loop.')
 except BaseException:
     result['ok'] = False
     result['error'] = traceback.format_exc(limit=6)
+finally:
+    sys.settrace(None)
 
 result['stdout'] = out.getvalue()
 json.dumps(result, ensure_ascii=False)
@@ -216,7 +235,7 @@ async function gradeExamDetailed(code,tasks){
     pyodide.globals.set('ARC_EXAM_CODE', String(code ?? ''));
     pyodide.globals.set('ARC_EXAM_TASKS_JSON', JSON.stringify(tasks || []));
     const raw = await pyodide.runPythonAsync(`
-import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile
+import io, contextlib, traceback, types, pathlib, os, json, math, statistics, re, csv, tempfile, sys, time
 from datetime import date, datetime, timedelta
 from collections import *
 
